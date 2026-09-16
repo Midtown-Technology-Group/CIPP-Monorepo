@@ -8,9 +8,17 @@ on:
       - backend/**
       - build/**
       - .github/workflows/mtg-release-container.yml
+      - .github/workflows/mtg-validate.yml
   workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact mtg-production commit to publish after its required checks pass.
+        required: true
+        type: string
 
 permissions:
+  actions: read
+  checks: read
   contents: read
   packages: write
   id-token: write
@@ -25,19 +33,72 @@ env:
   IMAGE_NAME: midtown-technology-group/cipp-monorepo
 
 jobs:
+  gate:
+    name: Require validation for exact source
+    runs-on: ubuntu-latest
+    outputs:
+      source_sha: ${{ steps.source.outputs.source_sha }}
+    steps:
+      - id: source
+        name: Resolve protected production source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUESTED_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          production_sha=$(gh api "repos/${GITHUB_REPOSITORY}/branches/mtg-production" --jq '.commit.sha')
+          source_sha="${REQUESTED_SHA:-$GITHUB_SHA}"
+          if ! [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || [ "$source_sha" != "$production_sha" ]; then
+            echo "Refusing to publish anything except the current mtg-production commit." >&2
+            exit 1
+          fi
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+      - name: Wait for required validation checks
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          required=("Backend standards" "Frontend standards" "Container build")
+          for attempt in $(seq 1 90); do
+            checks=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${SOURCE_SHA}/check-runs?per_page=100")
+            waiting=false
+            for name in "${required[@]}"; do
+              conclusion=$(jq -r --arg name "$name" '[.check_runs[] | select(.name == $name)][0].conclusion // empty' <<<"$checks")
+              case "$conclusion" in
+                success) ;;
+                failure|cancelled|timed_out|action_required|startup_failure)
+                  echo "Required check '$name' concluded '$conclusion'." >&2
+                  exit 1
+                  ;;
+                *) waiting=true ;;
+              esac
+            done
+            if [ "$waiting" = false ]; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Timed out waiting for required validation checks on $SOURCE_SHA." >&2
+          exit 1
+
   build:
     name: Build, attest, and publish
+    needs: gate
     runs-on: ubuntu-latest
+    env:
+      SOURCE_SHA: ${{ needs.gate.outputs.source_sha }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
           fetch-tags: true
       - id: version
         name: Resolve immutable version
         shell: bash
         run: |
-          short_sha="${GITHUB_SHA::12}"
+          short_sha="${SOURCE_SHA::12}"
           echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
           echo "sha_tag=sha-$short_sha" >> "$GITHUB_OUTPUT"
           echo "app_version=mtg+${short_sha}" >> "$GITHUB_OUTPUT"
@@ -59,7 +120,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=mtg-release
           build-args: |
             APP_VERSION=${{ steps.version.outputs.app_version }}
-            COMMIT_SHA=${{ github.sha }}
+            COMMIT_SHA=${{ env.SOURCE_SHA }}
             IMAGE_TAG=${{ steps.version.outputs.sha_tag }}
             BUILD_DATE=${{ steps.version.outputs.build_date }}
             DOTNET_REGISTRY=ghcr.io/cyberdrain
@@ -68,7 +129,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:candidate
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.revision=${{ env.SOURCE_SHA }}
             org.opencontainers.image.version=${{ steps.version.outputs.app_version }}
             org.opencontainers.image.created=${{ steps.version.outputs.build_date }}
       - name: Attest image provenance
@@ -83,8 +144,8 @@ jobs:
             echo "## Midtown CIPP production candidate"
             echo
             echo "- Image: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}\`"
-            echo "- Source: \`${{ github.sha }}\`"
+            echo "- Source: \`${{ env.SOURCE_SHA }}\`"
             echo "- Tag: \`${{ steps.version.outputs.sha_tag }}\`"
             echo
-            echo "Production deployment is intentionally a separate reviewed operation."
+            echo "The infrastructure automation independently verifies this attestation and deploys only the exact digest after this workflow succeeds."
           } >> "$GITHUB_STEP_SUMMARY"
