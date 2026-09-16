@@ -32,7 +32,8 @@ Merges to `mtg-production` publish:
 
 Azure uses the immutable digest discovered and verified by the scheduled
 deployment workflow in `MTG-Thomas/bifrost-infra`. Production never follows
-`candidate` or another moving tag directly.
+`candidate` or another moving tag directly. A failed version or health probe
+restores the previously deployed exact digest.
 
 ## Upstream update review
 
