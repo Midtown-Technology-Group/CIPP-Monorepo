@@ -1,0 +1,43 @@
+name: "MTG: Propose Upstream Update"
+
+on:
+  schedule:
+    - cron: "17 13 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: mtg-upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync mirror and propose production update
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fast-forward the pristine mirror from upstream
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/merge-upstream" -f branch=main
+      - name: Open an operator task when upstream advanced
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ahead=$(gh api "repos/${GITHUB_REPOSITORY}/compare/mtg-production...main" --jq '.ahead_by')
+          if [ "$ahead" = "0" ]; then
+            echo "Midtown production already contains the current upstream release."
+            exit 0
+          fi
+          title="Upstream CIPP release ready for Midtown review"
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "$title in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" \
+              --body "The pristine upstream mirror is now ${ahead} commit(s) ahead of \`mtg-production\`. Open or update a human-authored PR from \`main\` into \`mtg-production\`."
+            exit 0
+          fi
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" \
+            --body "The pristine \`main\` mirror is ${ahead} commit(s) ahead of \`mtg-production\`. Open a human-authored PR from \`main\` into \`mtg-production\`, review release notes, permissions, conflicts, validation, and the resulting immutable container digest before production promotion.\n\nThe Midtown organization currently prevents GitHub Actions from creating pull requests, so this workflow deliberately creates an operator task instead."
