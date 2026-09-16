@@ -1,7 +1,8 @@
 # Midtown CIPP Fork Maintenance
 
-This public fork carries reviewed Midtown standards on top of stable upstream
-CIPP releases. It does not deploy directly to Azure.
+This public fork carries Midtown standards on top of upstream CIPP releases.
+It publishes an attested candidate only after the complete production-fork
+validation gate succeeds. Azure deployment remains owned by `bifrost-infra`.
 
 ## Branch contract
 
@@ -12,11 +13,14 @@ CIPP releases. It does not deploy directly to Azure.
 - Feature branches target `mtg-production` through pull requests.
 
 The default branch is `mtg-production` so scheduled fork-maintenance workflows
-run from the controlled branch. `MTG: Propose Upstream Update` fast-forwards the
-`main` mirror with GitHub's upstream-sync API and opens an operator issue when
-upstream advances. The Midtown organization prevents Actions from creating pull
-requests, so an operator opens the PR from `main` into `mtg-production`. GitHub
-creates the reviewed merge; automation does not manufacture unsigned commits.
+run from the controlled branch. `MTG: Synchronize Upstream` first fast-forwards
+the pristine `main` mirror, then asks GitHub's native fork-sync API to merge the
+same upstream release into `mtg-production`. A conflict stops the conveyor and
+opens or updates an operator issue. A conflict-free update runs the full
+validation gate; only a successful non-PR validation run may publish a new
+candidate. The publisher independently waits for all three required checks on
+the exact current `mtg-production` SHA before building it. GitHub creates and
+verifies the upstream merge commit.
 
 ## Image contract
 
@@ -26,22 +30,21 @@ Merges to `mtg-production` publish:
 - the moving convenience tag `candidate`
 - a GitHub build-provenance attestation
 
-Azure must use the immutable digest printed in the workflow summary. Never
-configure production to follow `candidate` or another moving tag. Building an
-image is not deployment authorization.
+Azure uses the immutable digest discovered and verified by the scheduled
+deployment workflow in `MTG-Thomas/bifrost-infra`. Production never follows
+`candidate` or another moving tag directly. A failed version or health probe
+restores the previously deployed exact digest.
 
 ## Upstream update review
 
-For every upstream-update operator issue:
+When automation reports a conflict:
 
-1. Review CIPP release notes, permission changes, migrations, and conflicts.
-2. Confirm the Midtown standards and metadata remain present.
+1. Reconcile the Midtown patch stack with upstream on a feature branch.
+2. Review CIPP release notes, permission changes, and migrations.
 3. Require the backend, frontend, and release-container validation jobs.
-4. Merge only after the patch stack is coherent.
-5. Record the resulting image digest.
-6. Promote the digest through the separate infrastructure cutover procedure.
-7. Verify `/api/setup/health`, interactive sign-in, standards visibility, and a
-   safe read-only tenant operation before considering the update complete.
+4. Merge the repair through a normal pull request into `mtg-production`.
+5. Re-run `MTG: Synchronize Upstream`; do not bypass the validation or
+   digest-pinned deployment gates.
 
 Rollback means restoring the previously recorded image digest. The official
 `ghcr.io/cyberdrain/cipp:latest` image remains the emergency upstream escape

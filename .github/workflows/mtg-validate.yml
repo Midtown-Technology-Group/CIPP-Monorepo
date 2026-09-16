@@ -1,6 +1,8 @@
 name: "MTG: Validate Production Fork"
 
 on:
+  push:
+    branches: [mtg-production]
   pull_request:
     branches: [mtg-production]
   workflow_dispatch:
