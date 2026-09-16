@@ -1,0 +1,84 @@
+name: "MTG: Validate Production Fork"
+
+on:
+  pull_request:
+    branches: [mtg-production]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mtg-validate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend standards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install validation modules
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module Pester -MinimumVersion 5.0 -Force -Scope CurrentUser -SkipPublisherCheck
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+      - name: Run backend test suite
+        shell: pwsh
+        run: ./backend/Tests/Invoke-CippTests.ps1 -CI
+      - name: Analyze Midtown standard sources
+        shell: pwsh
+        run: |
+          $Results = Invoke-ScriptAnalyzer -Path ./backend/Modules/CIPPStandards/Public/Standards -Recurse -Severity Error
+          if ($Results) {
+            $Results | Format-Table -AutoSize
+            throw "PSScriptAnalyzer found $($Results.Count) error(s)."
+          }
+      - name: Upload Pester results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mtg-pester-results
+          path: backend/Tests/TestResults.xml
+          if-no-files-found: warn
+
+  frontend:
+    name: Frontend standards
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22.x"
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+      - run: yarn install --frozen-lockfile
+      - name: Validate standards metadata
+        run: node -e "JSON.parse(require('fs').readFileSync('src/data/standards.json'))"
+      - name: Run unit tests
+        run: yarn test:unit --testTimeout=30000
+
+  image:
+    name: Container build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Build release image without publishing
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: build/Dockerfile.release
+          push: false
+          cache-from: type=gha,scope=mtg-release
+          cache-to: type=gha,mode=max,scope=mtg-release
+          build-args: |
+            APP_VERSION=mtg-pr-${{ github.event.pull_request.number || github.run_number }}
+            COMMIT_SHA=${{ github.sha }}
+            IMAGE_TAG=validation
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+            DOTNET_REGISTRY=ghcr.io/cyberdrain
