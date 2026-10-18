@@ -19,7 +19,7 @@ const PAGE_MAX = 256 * 1024 * 1024
 const LEGACY_DELIMITER = '$<\n'
 
 const isBoundary = (id) => Math.imul(id, 0x9e3779b1) >>> 0 < 0x100000000 / PAGE_ROWS
-const hash = (text) => crypto.createHash('sha1').update(text).digest('base64')
+const hash = (text) => crypto.createHash('sha256').update(text).digest('base64')
 
 function createAdapter() {
   const onDisk = new Map()

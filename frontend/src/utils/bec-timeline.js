@@ -174,7 +174,7 @@ export function buildBecTimeline(becData, windowDays = 7, accountUpn = null) {
       if (!buckets.has(key)) buckets.set(key, { date, ip, rows: [] })
       buckets.get(key).rows.push(row)
     })
-    return [...buckets.values()].map(build)
+    return [...buckets.values()].map((bucket) => build(bucket))
   }
   const topOf = (rows, field) => {
     const counts = new Map()

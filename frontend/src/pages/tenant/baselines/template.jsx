@@ -102,8 +102,7 @@ const toOptionArray = (value) => {
 // Stable identity for a stage while it is being edited. Panels (and their forms) are
 // keyed on it rather than on position, so moving a stage up or down carries its
 // configuration along instead of handing it to whichever stage lands in that slot.
-const newStageKey = () =>
-  globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2)
+const newStageKey = () => globalThis.crypto.randomUUID()
 
 const buildEditorStages = (templateDefinition) =>
   (
@@ -897,9 +896,7 @@ const Page = () => {
   // to the given stage and returns its key so the panel can expand it straight away.
   const handleAddStandardInstance = (stageIndex, standardName) => {
     if (catalogByName[standardName]?.multiple !== true) return null
-    const instanceId =
-      globalThis.crypto?.randomUUID?.().slice(0, 8) ??
-      Math.random().toString(36).slice(2, 10)
+    const instanceId = globalThis.crypto.randomUUID()
     const instanceKey = `${standardName}#${instanceId}`
     mutateStages((prev) =>
       prev.map((stage, index) =>
@@ -920,9 +917,7 @@ const Page = () => {
           // Multi-instance standards: every instance gets a unique id ('Name#<id>') so
           // instances from different baselines never collide by accident - conflict
           // detection compares real identities, not positional counters.
-          const instanceId =
-            globalThis.crypto?.randomUUID?.().slice(0, 8) ??
-            Math.random().toString(36).slice(2, 10)
+          const instanceId = globalThis.crypto.randomUUID()
           return {
             ...stage,
             standards: [...stage.standards, `${standardName}#${instanceId}`],

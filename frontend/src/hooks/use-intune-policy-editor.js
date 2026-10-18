@@ -126,31 +126,55 @@ export const useIntunePolicyEditor = ({ policy, setPolicy, formControl }) => {
         return
 
       const pinned = { ...definition, defaultOptionId: optionId }
-      fetchIntuneDescendants(pinned).then((byId) => {
-        // The policy moved on while the definitions loaded; this leaf's position may no longer be its own.
-        if (leavesRef.current !== leaves) return
-        const built = buildSettingInstance(pinned, byId)
-        if (!built) return
-        const folded = foldValuesIntoPolicy()
-        const path = leaf.path.slice(0, -2)
-        const parent = path
-          .slice(0, -1)
-          .reduce((node, key) => node?.[key], folded)
-        const current = parent?.[path.at(-1)]
-        if (!current?.choiceSettingValue) return
-        parent[path.at(-1)] = mergeSettingInstance(
-          {
-            ...current,
-            choiceSettingValue: {
-              ...current.choiceSettingValue,
-              value: leaf.value,
+      formControl.clearErrors(name)
+      fetchIntuneDescendants(pinned)
+        .then((byId) => {
+          // The policy moved on while the definitions loaded; this leaf's position may no longer be its own.
+          if (
+            leavesRef.current !== leaves ||
+            unwrap(formControl.getValues(name)) !== optionId
+          )
+            return
+          const built = buildSettingInstance(pinned, byId)
+          if (!built) return
+          const folded = foldValuesIntoPolicy()
+          const path = leaf.path.slice(0, -2)
+          const parent = path
+            .slice(0, -1)
+            .reduce((node, key) => node?.[key], folded)
+          const current = parent?.[path.at(-1)]
+          if (!current?.choiceSettingValue) return
+          parent[path.at(-1)] = mergeSettingInstance(
+            {
+              ...current,
+              choiceSettingValue: {
+                ...current.choiceSettingValue,
+                value: leaf.value,
+              },
             },
-          },
-          built
-        )
-        setPolicy(folded)
-        noteStructuralChange()
-      })
+            built
+          )
+          setPolicy(folded)
+          noteStructuralChange()
+        })
+        .catch(() => {
+          if (
+            leavesRef.current !== leaves ||
+            unwrap(formControl.getValues(name)) !== optionId
+          )
+            return
+          // Keep the last complete choice rather than saving one without its required children.
+          formControl.setValue(
+            name,
+            leaf.options?.find((option) => option.value === leaf.value) ??
+              leaf.value
+          )
+          formControl.setError(name, {
+            type: 'load',
+            message:
+              'The required Intune settings could not be loaded. Try selecting the option again.',
+          })
+        })
     })
     return () => subscription.unsubscribe()
   }, [
