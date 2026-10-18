@@ -12,6 +12,13 @@ validation gate succeeds. Azure deployment remains owned by `bifrost-infra`.
   branch allowed to publish a production candidate.
 - Feature branches target `mtg-production` through pull requests.
 
+The pristine `main` mirror is locked against ordinary contributions with
+`allow_fork_syncing` enabled. It does not require linear history or signed
+commits: upstream publishes merge commits and unsigned commits, and rewriting
+them would violate the pristine-mirror contract. Keep force pushes and deletion
+disabled and admin enforcement enabled. This mirror-only policy does not relax
+the PR, signature, or validation requirements on `mtg-production`.
+
 The default branch is `mtg-production` so scheduled fork-maintenance workflows
 run from the controlled branch. `MTG: Synchronize Upstream` first fast-forwards
 the pristine `main` mirror, then asks GitHub's native fork-sync API to merge the
