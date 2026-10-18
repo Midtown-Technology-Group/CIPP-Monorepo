@@ -21,13 +21,26 @@ the PR, signature, or validation requirements on `mtg-production`.
 
 The default branch is `mtg-production` so scheduled fork-maintenance workflows
 run from the controlled branch. `MTG: Synchronize Upstream` first fast-forwards
-the pristine `main` mirror, then asks GitHub's native fork-sync API to merge the
-same upstream release into `mtg-production`. A conflict stops the conveyor and
-opens or updates an operator issue. A conflict-free update runs the full
-validation gate; only a successful non-PR validation run may publish a new
-candidate. The publisher independently waits for all three required checks on
-the exact current `mtg-production` SHA before building it. GitHub creates and
-verifies the upstream merge commit.
+the pristine `main` mirror using GitHub's native fork-sync API. Production
+records the last integrated upstream commit in `MTG_UPSTREAM_REVISION` because
+a signed squash merge does not retain upstream ancestry. An unchanged revision
+is a no-op. For a new revision, the workflow applies only the upstream delta
+over the Midtown patch stack and prepares a ready-for-review PR. It never
+writes directly to `mtg-production` or merges the PR automatically.
+
+The update commit is signed through GitHub's `createCommitOnBranch` API; its
+signature, parent, and exact prepared tree must verify before the PR opens.
+Existing update branches and PRs are preserved. Conflicts, upstream rewinds,
+ambiguous identities, unsupported changes, or updates over 500 files / 20 MiB
+stop preparation and open or update an operator issue. These limits require
+manual reconciliation, not a partial release.
+
+The workflow explicitly dispatches full validation on prepared PR branches
+because PRs created by `GITHUB_TOKEN` do not trigger ordinary Actions PR events.
+Review release notes, permission/default changes, and migrations before merging
+through the normal protected production PR lane. Only successful validation of
+the final merged production SHA may publish a candidate. The publisher
+independently waits for all three required checks on that exact current SHA.
 
 ## Image contract
 
@@ -49,7 +62,8 @@ When automation reports a conflict:
 1. Reconcile the Midtown patch stack with upstream on a feature branch.
 2. Review CIPP release notes, permission changes, and migrations.
 3. Require the backend, frontend, and release-container validation jobs.
-4. Merge the repair through a normal pull request into `mtg-production`.
+4. Update `MTG_UPSTREAM_REVISION` to the exact reconciled upstream commit and
+   merge the repair through a normal pull request into `mtg-production`.
 5. Re-run `MTG: Synchronize Upstream`; do not bypass the validation or
    digest-pinned deployment gates.
 

@@ -20,6 +20,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Test upstream preparation boundaries
+        run: python3 -m unittest discover -s build/tests -p test_mtg_upstream.py -v
       - name: Install validation modules
         shell: pwsh
         run: |
