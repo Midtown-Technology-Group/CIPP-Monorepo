@@ -61,3 +61,24 @@ digest, retain the previous digest above, and check Azure image readback,
 `/api/setup/health`. An image rollback alone does not prove that application
 state migrations are reversible. Production remains on the previous image
 until the reviewed integration passes its gates and is promoted.
+
+## Accepted deployment, 2026-10-18
+
+PR #8 merged as `f8bbc3da89c3b8f02001d3ba9491961c436ea178` after backend,
+frontend, release-container, CodeQL, and Sonar checks passed. Sonar's five
+blocking imported findings were repaired; its exact-head security/reliability
+issue count was zero before merge.
+
+- [Validated image publication](https://github.com/Midtown-Technology-Group/CIPP-Monorepo/actions/runs/39129962318)
+  published and attested
+  `ghcr.io/midtown-technology-group/cipp-monorepo@sha256:44fb002427146ac2efb2f7542bd4462bf1f241f30a5909a4938fe2792d7a8865`.
+- [Protected infrastructure deployment](https://github.com/MTG-Thomas/bifrost-infra/actions/runs/39131293210)
+  verified the provenance, promoted the exact digest, and passed its version and
+  health checks without rollback.
+- Independent Azure and HTTP readback confirmed the same digest,
+  `/version.json` commit `f8bbc3da89c3b8f02001d3ba9491961c436ea178`, and health
+  `status=ok`, `ready=true`.
+
+The previous digest above remains the recorded rollback target. The operator
+approved the major-version/default changes before merge. This task did not
+manually grant the new requested permissions or execute tenant standards.

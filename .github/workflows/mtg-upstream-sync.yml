@@ -9,6 +9,7 @@ permissions:
   actions: write
   contents: write
   issues: write
+  pull-requests: write
 
 concurrency:
   group: mtg-upstream-sync
@@ -16,44 +17,39 @@ concurrency:
 
 jobs:
   sync:
-    name: Sync conflict-free upstream releases
+    name: Mirror upstream and prepare reviewed production updates
+    if: github.ref == 'refs/heads/mtg-production'
     runs-on: ubuntu-latest
     steps:
       - name: Fast-forward the pristine mirror from upstream
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh api --method POST "repos/${GITHUB_REPOSITORY}/merge-upstream" -f branch=main
-      - id: production
-        name: Merge upstream into Midtown production
+        run: gh api --method POST "repos/${GITHUB_REPOSITORY}/merge-upstream" -f branch=main
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare a signed production update PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          response_file=$(mktemp)
-          if ! gh api --method POST "repos/${GITHUB_REPOSITORY}/merge-upstream" \
-            -f branch=mtg-production >"$response_file" 2>&1; then
-            title="CIPP upstream synchronization needs operator attention"
-            existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
-              --search "$title in:title" --json number --jq '.[0].number // empty')
-            body=$(printf 'GitHub could not merge the current upstream release into `mtg-production`. This normally means the Midtown patch stack conflicts with upstream.\n\nRun: %s\n\n```text\n%s\n```' \
-              "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
-              "$(head -c 4000 "$response_file")")
-            if [ -n "$existing" ]; then
-              gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "$body"
-            else
-              gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
-            fi
-            exit 1
-          fi
-          merge_type=$(jq -r '.merge_type' "$response_file")
-          echo "merge_type=$merge_type" >> "$GITHUB_OUTPUT"
-          jq . "$response_file"
-      - name: Validate the updated production branch
-        if: steps.production.outputs.merge_type != 'none'
+          git fetch origin main mtg-production
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/mtg-production)"
+          python3 build/tools/mtg_upstream.py --publish "$GITHUB_REPOSITORY"
+      - name: Report a stopped upstream conveyor
+        if: failure()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          source_sha=$(gh api "repos/${GITHUB_REPOSITORY}/branches/mtg-production" --jq '.commit.sha')
-          gh workflow run mtg-validate.yml --repo "$GITHUB_REPOSITORY" --ref mtg-production
-          gh workflow run mtg-release-container.yml --repo "$GITHUB_REPOSITORY" --ref mtg-production -f source_sha="$source_sha"
+          set -euo pipefail
+          title="CIPP upstream synchronization needs operator attention"
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "$title in:title" --json number --jq '.[0].number // empty')
+          body_file=$(mktemp)
+          printf 'The upstream mirror or production PR preparation stopped. Production was not modified. Inspect this run before retrying; preserve any existing update branch or PR.\n\nRun: %s\n' "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" > "$body_file"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body-file "$body_file"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body-file "$body_file"
+          fi
