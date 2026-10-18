@@ -13,6 +13,7 @@ PRODUCTION = "mtg-production"
 
 
 def command(*args, data=None):
+    """Run a bounded child process without exposing its environment or response bodies."""
     try:
         result = subprocess.run(args, input=data, capture_output=True, timeout=120)
     except subprocess.TimeoutExpired:
@@ -23,10 +24,12 @@ def command(*args, data=None):
 
 
 def git(*args, data=None):
+    """Read or stage Git data in the caller's isolated checkout."""
     return command("git", *args, data=data)
 
 
 def prepare(upstream_ref="origin/main"):
+    """Stage only the delta since the recorded revision, preserving production history."""
     if git("status", "--porcelain").strip():
         raise RuntimeError("Refusing to prepare an update in a dirty checkout.")
     previous = Path(MARKER).read_text(encoding="utf-8").strip()
@@ -54,6 +57,7 @@ def prepare(upstream_ref="origin/main"):
 
 
 def api(path, payload=None):
+    """Call GitHub with the runner credential and accept empty dispatch receipts."""
     args = ["gh", "api", path]
     if payload is not None:
         args += ["--method", "POST", "--input", "-"]
@@ -62,6 +66,7 @@ def api(path, payload=None):
 
 
 def commit_payload(repository, update):
+    """Encode the staged tree as a size-bounded, compare-and-set signed commit request."""
     additions, deletions = [], []
     changes = git("diff", "--cached", "--name-status", "--no-renames", "-z").decode().split("\0")
     for index in range(0, len(changes) - 1, 2):
@@ -90,13 +95,26 @@ def commit_payload(repository, update):
 
 
 def ensure_validation(repository, branch, head):
+    """Dispatch validation only when no run already exists for this exact source."""
     workflow = f"repos/{repository}/actions/workflows/mtg-validate.yml"
     runs = api(workflow + "/runs?branch=" + quote(branch, safe="") + "&head_sha=" + head + "&per_page=1")
     if not runs["workflow_runs"]:
         api(workflow + "/dispatches", {"ref": branch})
 
 
+def verify_commit(repository, head, update):
+    """Reject a commit unless its signature, tree, and sole parent match preparation."""
+    commit = api(f"repos/{repository}/git/commits/{head}")
+    if (
+        not commit["verification"]["verified"]
+        or commit["tree"]["sha"] != update["tree_sha"]
+        or [parent["sha"] for parent in commit["parents"]] != [update["base_sha"]]
+    ):
+        raise RuntimeError("Published commit signature, parent, or exact tree did not verify.")
+
+
 def publish(repository, update):
+    """Create or reuse a verified update PR without modifying protected production."""
     if not update["changed"]:
         return update
     branch = update["branch"]
@@ -105,10 +123,14 @@ def publish(repository, update):
     if existing:
         if len(existing) != 1:
             raise RuntimeError("Ambiguous upstream pull request identity.")
-        marker = api(f"repos/{repository}/contents/{MARKER}?ref=" + quote(branch, safe=""))
+        if existing[0]["base"]["sha"] != update["base_sha"]:
+            raise RuntimeError("Existing upstream PR base does not match prepared production.")
+        head = existing[0]["head"]["sha"]
+        marker = api(f"repos/{repository}/contents/{MARKER}?ref=" + head)
         if base64.b64decode(marker["content"]).decode().strip() != update["source_sha"]:
             raise RuntimeError("Existing upstream PR has an unexpected source marker.")
-        ensure_validation(repository, branch, existing[0]["head"]["sha"])
+        verify_commit(repository, head, update)
+        ensure_validation(repository, branch, head)
         return {**update, "pull_request": existing[0]["html_url"], "existing": True}
 
     current = api(f"repos/{repository}/branches/{PRODUCTION}")["commit"]["sha"]
@@ -123,13 +145,7 @@ def publish(repository, update):
     if response.get("errors"):
         raise RuntimeError("Signed commit creation failed; inspect branch readback before retrying.")
     head = response["data"]["createCommitOnBranch"]["commit"]["oid"]
-    commit = api(f"repos/{repository}/git/commits/{head}")
-    if (
-        not commit["verification"]["verified"]
-        or commit["tree"]["sha"] != update["tree_sha"]
-        or [parent["sha"] for parent in commit["parents"]] != [current]
-    ):
-        raise RuntimeError("Published commit signature or exact tree did not verify; no PR was opened.")
+    verify_commit(repository, head, update)
     body = (
         f"Prepare upstream `{update['previous_sha']}` to `{update['source_sha']}` over production `{current}`.\n\n"
         "Only the upstream delta is applied, preserving the Midtown patch stack without importing unsigned history. "
@@ -146,6 +162,7 @@ def publish(repository, update):
 
 
 def main():
+    """Expose preparation locally and publication only with an explicit repository target."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--publish", metavar="OWNER/REPO")
     args = parser.parse_args()
