@@ -8,8 +8,8 @@ The report reads from cached usage data rather than querying SharePoint and OneD
 
 | Control      | Description                                                                                                                                                                     |
 | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Sync usage   | Queues a refresh of SharePoint site usage (including file-level archive metrics, where SharePoint admin access is available) and OneDrive usage for this tenant. This is what feeds the charts, the tables, and the near-quota and inactive views. Progress is shown next to it as **Usage sync**, and the report refreshes itself once the sync finishes. |
-| Scan cleanup | Queues the cleanup scan described under [#finding-cleanup-opportunities](storage-report.md#finding-cleanup-opportunities "mention"). It fills the reclaim columns only, and does not refresh usage sizes. Unavailable until usage data has been synced, and reads **Rescan cleanup** once a scan has run. |
+| Sync usage   | Queues a refresh of SharePoint site usage (including file-level archive metrics, where SharePoint admin access is available) and OneDrive usage for this tenant. This is what feeds the charts, the tables, and the near-quota and inactive views. Progress is shown next to it as **Usage sync**, and the report refreshes itself once the sync finishes. Greyed out unless you have SharePoint report write access. |
+| Scan cleanup | Queues the cleanup scan described under [#finding-cleanup-opportunities](storage-report.md#finding-cleanup-opportunities "mention"). It fills the reclaim columns only, and does not refresh usage sizes. Unavailable until usage data has been synced, and reads **Rescan cleanup** once a scan has run. Greyed out unless you have SharePoint report write access. |
 | Refresh      | Reloads the report from the cached data without running a new sync.                                                                                                                                                                                                    |
 
 {% hint style="info" %}
@@ -28,7 +28,7 @@ The fix is on the tenant, not in CIPP. Enabling the **Enable Usernames instead o
 
 ## Tenant Storage
 
-A storage bar above the summary shows how much of the tenant's overall SharePoint storage pool is used, with chips for storage used, storage free and the total quota. On a tenant with more than one geo location, a chip is added for each geo showing its own usage. The bar needs SharePoint admin access; if it can't retrieve a quota figure for the tenant, it reads "Tenant storage usage is unavailable for this tenant" instead.
+A storage bar above the summary shows how much of the tenant's overall SharePoint storage pool is used, with chips for storage used, storage free and the total quota. On a tenant with more than one geo location, a chip is added for each geo showing its own usage. These figures reflect the quota as of CIPP's last collection of the tenant's data, and **Sync usage** does not refresh them. The bar needs SharePoint admin access; if it can't retrieve a quota figure for the tenant, it reads "Tenant storage usage is unavailable for this tenant" instead.
 
 ## Summary
 
