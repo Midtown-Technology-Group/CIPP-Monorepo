@@ -101,12 +101,20 @@ Describe 'New-CIPPBecEvidencePackage' {
     }
 
     It 'scrubs any password copy field from the logbook copy and queries the case id across day partitions' {
+        # Keep this fixture inside the production 60-day log retention window.
+        Mock Get-Date { [datetime]'2026-08-20T14:00:00Z' }
         $Package = New-CIPPBecEvidencePackage -TenantFilter 'contoso.com' -CaseId 'BEC-20260820120000-ev0001'
         $Entries = Read-Zip -Bytes $Package.ZipBytes
         $Log = [System.Text.Encoding]::UTF8.GetString($Entries['logbook.json'])
         $Log | Should -Not -Match 'Hunter2'
         $Log | Should -Match '\[redacted\]'
         Should -Invoke Get-CIPPAzDataTableEntity -Times 1 -ParameterFilter { $Filter -like "BecCaseId eq 'BEC-20260820120000-ev0001'*" -and $Filter -like "*PartitionKey ge '20260819'*" }
+    }
+
+    It 'bounds an older case query to the 60-day log retention window' {
+        Mock Get-Date { [datetime]'2026-11-03T12:00:00Z' }
+        $null = New-CIPPBecEvidencePackage -TenantFilter 'contoso.com' -CaseId 'BEC-20260820120000-ev0001'
+        Should -Invoke Get-CIPPAzDataTableEntity -Times 1 -ParameterFilter { $Filter -like "*PartitionKey ge '20260904'*" -and $Filter -like "*PartitionKey le '20261104'*" }
     }
 
     It 'refuses an incomplete run' {
