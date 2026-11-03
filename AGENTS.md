@@ -15,3 +15,12 @@ Follow [.github/workflows/mtg-validate.yml](.github/workflows/mtg-validate.yml).
 In `frontend/`, run `yarn install --frozen-lockfile`, `node -e "JSON.parse(require('fs').readFileSync('src/data/standards.json'))"`, and `yarn test:unit --testTimeout=30000`. The required container lane builds `build/Dockerfile.release` without publishing; retain its build arguments and upstream registry contract.
 
 Follow [.github/copilot-instructions.md](.github/copilot-instructions.md) for Conventional Commits, including breaking-change notation. Local validation does not authorize running standards against customer tenants, publishing images, or Azure deployment. Keep those operations separate with exact tenant/artifact/runtime evidence.
+
+## Secret gate before publication
+
+Before every push and PR creation/update, commit the complete candidate and run
+`python3 scripts/secret_gate.py` (native Windows: `python`). Require exit 0;
+missing tooling/authentication, scan errors and skipped scans block publication.
+Then run the existing repository gates. Repeat after changing outgoing commits.
+See [secret scanning](SECRET-SCANNING.md) for base selection, new branches,
+pre-push input and prerequisites. Preserve GitGuardian App, CI and Gitleaks checks.
