@@ -19,7 +19,7 @@ Follow [.github/copilot-instructions.md](.github/copilot-instructions.md) for Co
 ## Secret gate before publication
 
 Before publishing the current PR branch, commit the complete candidate and run
-`python3 -I scripts/secret_gate.py --base refs/remotes/origin/mtg-production` (native Windows: `python -I`). Require exit 0;
+`python3 -I scripts/secret_gate.py --base refs/remotes/origin/mtg-production` (native Windows PowerShell: `& "$env:MTG_SECRET_GATE_PYTHON" -I`). Require exit 0;
 missing tooling/authentication, scan errors and skipped scans block publication.
 Then run the existing repository gates. Repeat after changing outgoing commits.
 Push exactly the scanned HEAD. This PR scan covers the current branch against its
