@@ -15,3 +15,26 @@ Follow [.github/workflows/mtg-validate.yml](.github/workflows/mtg-validate.yml).
 In `frontend/`, run `yarn install --frozen-lockfile`, `node -e "JSON.parse(require('fs').readFileSync('src/data/standards.json'))"`, and `yarn test:unit --testTimeout=30000`. The required container lane builds `build/Dockerfile.release` without publishing; retain its build arguments and upstream registry contract.
 
 Follow [.github/copilot-instructions.md](.github/copilot-instructions.md) for Conventional Commits, including breaking-change notation. Local validation does not authorize running standards against customer tenants, publishing images, or Azure deployment. Keep those operations separate with exact tenant/artifact/runtime evidence.
+
+## Secret gate before publication
+
+Before publishing the current PR branch, commit the complete candidate and run
+`python3 -I scripts/secret_gate.py --base refs/remotes/origin/mtg-production`.
+On native Windows PowerShell, run
+`& "$env:MTG_SECRET_GATE_PYTHON" -I scripts/secret_gate.py --base refs/remotes/origin/mtg-production`.
+Require the gate's exit code 0 (`$LASTEXITCODE` in PowerShell);
+missing tooling/authentication, scan errors and skipped scans block publication.
+Then run the existing repository gates. Repeat after changing outgoing commits.
+Push exactly the scanned HEAD. This PR scan covers the current branch against its
+fetched intended base; other refs, multi-ref pushes and rewritten history require
+`--pre-push` with Git's complete ref-update stream. Stop if any pushed ref is
+uncovered. See [secret scanning](SECRET-SCANNING.md) for base selection, new branches,
+pre-push input and prerequisites. Preserve GitGuardian App, CI and Gitleaks checks.
+
+For a non-default PR target, fetch its destination and pass that exact ref to
+`--base`; the remote default is not a substitute for a release/maintenance base.
+
+The secret gate requires Python 3.11+ and approved ggshield >=1.56.1,<2.
+
+Explicit bases require fully qualified refs such as `refs/remotes/origin/mtg-production`
+or full commit SHAs; ambiguous short names block with exit 20.
