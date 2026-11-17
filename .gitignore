@@ -45,3 +45,6 @@ frontend/public/openapi.json
 
 # Local upstream-preparation Python test caches.
 build/**/__pycache__/
+
+# Added by ggshield
+.cache_ggshield

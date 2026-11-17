@@ -134,7 +134,8 @@ function Invoke-CIPPBaseline<Name> {
 - Match the source-of-truth's **auth mode exactly** (`-AsApp $true` where required — read
   any classic implementation's write block to the end before porting).
 - Standards sharing one settings object must **live-read before create-vs-patch
-  decisions** — concurrent one-off remediations race each other's cache refreshes.
+  decisions** — every remediation in a run reads the same pre-write cache, which is refreshed only
+  after the run finishes.
 - Directory-settings (`beta/settings`) PATCHes require the **full values array**; partial
   arrays are rejected.
 - A write the executor must gate itself (fingerprint checks, always-run semantics) pairs
@@ -148,6 +149,12 @@ A standard that deploys one object per operator-chosen name or per stored templa
 bundle the template. One instance grades ONE object; an unresolvable template grades **No
 Data, never Compliant**.
 
+A standard that deploys an Intune policy outside IntuneTemplate, or a Conditional Access policy
+outside ConditionalAccessTemplate, lists the policy names it owns in `"driftManagedNames"`
+(literal names, or `"%Variable%"` for an operator-chosen or instance name; a blank variable falls
+back to its `default`) so Detect Intune Drift and Detect Conditional Access Drift do not report
+its own policy as unmanaged.
+
 ## Non-negotiables
 
 - **One function per file.** Hook and executor are separate files. Never build arrays with
@@ -155,6 +162,9 @@ Data, never Compliant**.
 - Hooks and executors run for every tenant in every baseline run: follow the PowerShell hot-path rules in
   `.github/copilot-instructions.md` (no `| Where-Object` / `| Select-Object -First` over cached rows, lookups built
   once, CippJson for JSON).
+- Baseline configuration stores tenants by `customerId` (assignments, exclusions, overrides, stage progress); work
+  items and hooks receive `TenantFilter` as the current default domain. Never key new baseline data by domain. See
+  "Storing tenant references" in `.github/copilot-instructions.md`.
 - When porting a classic standard, the default is an **exact port of its wire behaviour**;
   flag questionable classic behaviour instead of silently "improving" it. Deviations
   require sign-off and get recorded in

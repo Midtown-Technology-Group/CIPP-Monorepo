@@ -1,66 +1,77 @@
-# Midtown upstream review: CIPP 11.2.1
+# Midtown upstream review: CIPP 11.4.0
 
-Reviewed source on 2026-10-18:
+Reviewed source on 2026-11-16:
 
-- Previous upstream: `75dd35aec0e195537b6161778cb6d758a53ce954` (10.10.3).
-- New upstream: `8971c3fc6601fdfd30a9a31b35cffdb1ab67163b` (`v11.2.1`).
-- Previous production: `1a8860c796fc562454b7bd28ac95ac525a0a080b`.
-- Previous deployed image: `ghcr.io/midtown-technology-group/cipp-monorepo@sha256:2899a535af5702a783ad350fc4bad350dbfb2f773c8df1dcec8620e8f5866b10`.
+- Previous upstream: `8971c3fc6601fdfd30a9a31b35cffdb1ab67163b` (`v11.2.1`).
+- New upstream: `12880df920a71239122aeddaf2bd5ad7a1eb1974` (`v11.4.0`).
+- Previous production: `0d6f4ffeaaf73dd1e4c9a3b55d87c8a74e8f4e6c`.
 
 The pristine mirror was fast-forwarded using GitHub's native fork-sync API.
-The production integration preserves the Midtown EWS application allow-list
-standard and metadata. The lockfile conflict retains DOMPurify 3.4.16 and
-ProseMirror View 1.42.6 instead of downgrading Midtown's security fixes.
+The automated preparation stopped on three conflicting files, so this
+integration was reconciled by hand over the same upstream delta:
+
+- `frontend/package.json` and `frontend/yarn.lock` take the newer upstream
+  dependency set (Storybook 10.6.6, Next ^16.4.2, Vite 8.2.4, Vitest 4.1.12,
+  DOMPurify ^3.4.17) and keep the Midtown DOMPurify resolution pins so
+  transitive consumers stay on the patched release.
+- `frontend/src/hooks/use-intune-policy-editor.js` takes upstream's template
+  references and preserve-chosen-options logic, and keeps the Midtown guards
+  that clear stale form errors and roll the choice back when required Intune
+  definitions fail to load.
+
+No other Midtown patch was dropped; the EWS application allow-list standard,
+its tests, and the fork maintenance tooling are unchanged.
+
+The local secret gate excludes the generated
+`frontend/public/intune-definitions/` buckets from content scanning because the
+generic username/password detector misreads their Apple proxy preference keys on
+the single-line files. That exclusion is documented in `SECRET-SCANNING.md`, and
+the GitGuardian App and CI checks still cover the files. One synthetic bearer
+token in the new rate-limiter test was shortened because it also tripped the
+detector.
 
 ## Permission changes
 
-The upstream `backend/Config/SAMManifest.json` adds these requested permissions
-relative to the previous production source. Names were resolved against the live
-Entra service-principal permission definitions; this review does not grant them.
-
-| Resource | Permission | Type |
-| --- | --- | --- |
-| Microsoft Graph | SecurityAlert.ReadWrite.All | Application |
-| Microsoft Graph | DirectoryRecommendations.Read.All | Delegated |
-| Microsoft Graph | SecurityAlert.ReadWrite.All | Delegated |
-| Microsoft Graph | NetworkAccess.ReadWrite.All | Application |
-| Microsoft Graph | NetworkAccessPolicy.ReadWrite.All | Application |
-| ProjectWorkManagement | OrgSettings-Planner.ReadWrite.All | Application |
-
-Permission consent and tenant-wide permission-update operations require a
-separate explicit operator decision. No tenant standard or permission update
-was executed as part of preparing this integration.
+`backend/Config/SAMManifest.json` is identical to the previously integrated
+source, so this update requests no new Graph or partner permissions. No tenant
+consent or permission-update operation was executed as part of preparing this
+integration.
 
 ## Behavior and migration review
 
-[CIPP 11.0.0 release notes](https://github.com/CyberDrain/CIPP/releases/tag/v11.0.0)
-introduce Baselines as the replacement for classic Standards and Drift when the
-feature is enabled. The integrated `FeatureFlags.json` additionally defaults
-Baselines and Security Simulations on when `NoClassicStandards` is satisfied.
-An explicit user toggle takes precedence. Old auto-seeded rows without a user
-modification timestamp can be re-seeded under the new default. Production's
-stored flags and classic-template inventory have not been inspected by this
-source review.
-Existing MCP beta clients may need their Azure configuration saved again and
-the new connector URL, as described by upstream.
+[CIPP 11.3.0 release notes](https://github.com/CyberDrain/CIPP/releases/tag/v11.3.0)
+add NinjaOne ticketing and key sync, Intune enrollment restrictions, a device
+policy status report, the CA policy comparison tool, and large-estate caching
+work.
 
-[CIPP 11.2.1 release notes](https://github.com/CyberDrain/CIPP/releases/tag/v11.2.1)
-add ConnectWise breached-app filtering and alerts for application presence and
-new service-principal credentials.
+[CIPP 11.4.0 release notes](https://github.com/CyberDrain/CIPP/releases/tag/v11.4.0)
+add opt-in multi-partner support, non-human identity investigation pages, Global
+Secure Access templates, more Intune reporting, and the Tenant Groups tenant
+selector.
 
-This is a major-version integration, not evidence of production migration
-acceptance. Require the backend, frontend, and release-container checks on the
-final candidate and an operator decision on the changed behavior before merge:
-merging can publish a candidate that infrastructure automatically deploys.
+`backend/Config/FeatureFlags.json` adds two flags, both disabled by default:
+
+- `MultiPartner` — upstream describes it as pre-alpha and not for production.
+  It is user-toggleable, so operators must keep it off.
+- `TenantGroupSelector` — user-toggleable; API requests that name a
+  `tenantGroup` are refused while it is off.
+
+There are no database schema migrations. New standards and baseline migrations
+run only where an operator deploys them. This is a source review, not evidence
+of production migration acceptance.
 
 ## Deployment acceptance
 
-Infrastructure must verify the published candidate's provenance and immutable
-digest, retain the previous digest above, and check Azure image readback,
+Require the backend, frontend, and release-container checks on the final
+candidate and an operator decision on the changed behavior before merge:
+merging can publish a candidate that infrastructure automatically deploys.
+
+Infrastructure must record the currently deployed digest, verify the published
+candidate's provenance and immutable digest, and check Azure image readback,
 `/version.json` against the final production source SHA, and
 `/api/setup/health`. An image rollback alone does not prove that application
-state migrations are reversible. Production remains on the previous image
-until the reviewed integration passes its gates and is promoted.
+state migrations are reversible. Production remains on the previous image until
+the reviewed integration passes its gates and is promoted.
 
 ## Accepted deployment, 2026-10-18
 
@@ -79,6 +90,6 @@ issue count was zero before merge.
   `/version.json` commit `f8bbc3da89c3b8f02001d3ba9491961c436ea178`, and health
   `status=ok`, `ready=true`.
 
-The previous digest above remains the recorded rollback target. The operator
-approved the major-version/default changes before merge. This task did not
-manually grant the new requested permissions or execute tenant standards.
+That deployment's digest remains the last recorded rollback target for the
+11.2.1 source. The operator approved the major-version/default changes before
+merge. This task did not manually grant permissions or execute tenant standards.
