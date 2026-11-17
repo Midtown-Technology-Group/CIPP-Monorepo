@@ -12,16 +12,21 @@ validation gate succeeds. Azure deployment remains owned by `bifrost-infra`.
   branch allowed to publish a production candidate.
 - Feature branches target `mtg-production` through pull requests.
 
-The pristine `main` mirror is locked against ordinary contributions with
-`allow_fork_syncing` enabled. It does not require linear history or signed
-commits: upstream publishes merge commits and unsigned commits, and rewriting
-them would violate the pristine-mirror contract. Keep force pushes and deletion
-disabled and admin enforcement enabled. This mirror-only policy does not relax
-the PR, signature, or validation requirements on `mtg-production`.
+The pristine `main` mirror is protected by disabled force pushes and deletions
+and admin enforcement, plus a workflow guard that refuses to sync a locked
+branch. Do not enable GitHub's lock-branch setting on `main`: a locked branch
+makes the built-in Actions token's fork sync fail with a misleading 409 "merge
+conflicts", which is what stalled the conveyor before this guard existed.
+Ordinary contributions are prevented by repository access, not by the lock. The
+mirror does not require linear history or signed commits: upstream publishes
+merge commits and unsigned commits, and rewriting them would violate the
+pristine-mirror contract. This mirror-only policy does not relax the PR,
+signature, or validation requirements on `mtg-production`.
 
 The default branch is `mtg-production` so scheduled fork-maintenance workflows
-run from the controlled branch. `MTG: Synchronize Upstream` first fast-forwards
-the pristine `main` mirror using GitHub's native fork-sync API. Production
+run from the controlled branch. `MTG: Synchronize Upstream` runs every six
+hours and first fast-forwards the pristine `main` mirror using GitHub's native
+fork-sync API. Production
 records the last integrated upstream commit in `MTG_UPSTREAM_REVISION` because
 a signed squash merge does not retain upstream ancestry. An unchanged revision
 is a no-op. For a new revision, the workflow applies only the upstream delta

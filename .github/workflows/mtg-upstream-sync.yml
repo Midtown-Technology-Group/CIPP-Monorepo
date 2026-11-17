@@ -2,7 +2,7 @@ name: "MTG: Synchronize Upstream"
 
 on:
   schedule:
-    - cron: "17 13 * * *"
+    - cron: "17 */6 * * *"
   workflow_dispatch:
 
 permissions:
@@ -21,6 +21,18 @@ jobs:
     if: github.ref == 'refs/heads/mtg-production'
     runs-on: ubuntu-latest
     steps:
+      - name: Require an unlocked mirror
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # A locked branch rejects the Actions token's fork sync with a generic
+          # 409 "merge conflicts", so fail with the real cause instead.
+          locked=$(gh api "repos/${GITHUB_REPOSITORY}/branches/main/protection" --jq '.lock_branch.enabled // false' 2>/dev/null || echo false)
+          if [ "$locked" = "true" ]; then
+            echo "main is locked; GitHub's fork sync cannot update it with the Actions token. Unlock the branch, then retry." >&2
+            exit 1
+          fi
       - name: Fast-forward the pristine mirror from upstream
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
