@@ -117,7 +117,8 @@ Describe 'New-CIPPBecEvidencePackage' {
 
     It 'scrubs any password copy field from the logbook copy and queries the case id across day partitions' {
         # Keep this fixture inside the production 60-day log retention window.
-        Mock Get-Date { [datetime]'2026-08-20T14:00:00Z' }
+        $Now = [datetime]'2026-08-20T14:00:00Z'
+        Mock Get-Date { $Now }
         $Package = New-CIPPBecEvidencePackage -TenantFilter 'contoso.com' -CaseId 'BEC-20260820120000-ev0001'
         $Entries = Read-Zip -Bytes $Package.ZipBytes
         $Log = [System.Text.Encoding]::UTF8.GetString($Entries['logbook.json'])
@@ -125,7 +126,7 @@ Describe 'New-CIPPBecEvidencePackage' {
         $Log | Should -Match '\[redacted\]'
         # The query starts a day before the run but never before the 60-day floor, which moves with the clock.
         $ExpectedFrom = ([datetime]$script:Run.RequestedAt).ToUniversalTime().AddDays(-1)
-        $RetentionFloor = [datetime]::UtcNow.AddDays(-60)
+        $RetentionFloor = $Now.ToUniversalTime().AddDays(-60)
         if ($ExpectedFrom -lt $RetentionFloor) { $ExpectedFrom = $RetentionFloor }
         $ExpectedPartition = $ExpectedFrom.ToString('yyyyMMdd')
         Should -Invoke Get-CIPPAzDataTableEntity -Times 1 -ParameterFilter {
