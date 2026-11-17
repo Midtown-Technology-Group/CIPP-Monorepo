@@ -135,7 +135,7 @@ def major_version(ref):
         return None
 
 
-def enable_auto_merge(repository, pull_request):
+def enable_auto_merge(pull_request):
     """Let GitHub squash-merge this PR once the required checks pass."""
     response = api("graphql", {
         "query": "mutation($input: EnablePullRequestAutoMergeInput!) { enablePullRequestAutoMerge(input: $input) { clientMutationId } }",
@@ -208,7 +208,7 @@ def publish(repository, update):
         "head": branch, "base": PRODUCTION, "body": body, "draft": False,
     })
     if hold is None:
-        enable_auto_merge(repository, pr)
+        enable_auto_merge(pr)
     ensure_validation(repository, branch, head)
     return {**update, "pull_request": pr["html_url"], "head_sha": head, "auto_merge_hold": hold}
 
