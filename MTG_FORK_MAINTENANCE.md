@@ -26,12 +26,17 @@ signature, or validation requirements on `mtg-production`.
 The default branch is `mtg-production` so scheduled fork-maintenance workflows
 run from the controlled branch. `MTG: Synchronize Upstream` runs every six
 hours and first fast-forwards the pristine `main` mirror using GitHub's native
-fork-sync API. Production
-records the last integrated upstream commit in `MTG_UPSTREAM_REVISION` because
+fork-sync API. Production records the last integrated upstream commit in `MTG_UPSTREAM_REVISION` because
 a signed squash merge does not retain upstream ancestry. An unchanged revision
 is a no-op. For a new revision, the workflow applies only the upstream delta
-over the Midtown patch stack and prepares a ready-for-review PR. It never
-writes directly to `mtg-production` or merges the PR automatically.
+over the Midtown patch stack and prepares a PR. It never writes directly to
+`mtg-production`. A delta that leaves `backend/Config/SAMManifest.json`,
+`backend/Config/FeatureFlags.json`, `.github/workflows/`, and the upstream major
+version untouched enables GitHub squash auto-merge, which merges once the
+required checks pass. Any other delta stays open for review. A bot merge does
+not trigger the push-based validation or candidate build, so a 30-minute
+publisher tick in the same workflow dispatches both for any merged production
+commit that has no build run yet.
 
 The update commit is signed through GitHub's `createCommitOnBranch` API; its
 signature, parent, and exact prepared tree must verify before the PR opens.
