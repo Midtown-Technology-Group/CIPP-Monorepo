@@ -21,7 +21,7 @@ const SetupGatePage = () => {
   const queryClient = useQueryClient()
   const router = useRouter()
   useEffect(() => {
-    clearPersistedQueries()
+    clearPersistedQueries().catch(() => {})
     // The persister already rehydrated pre-setup queries into memory at app start,
     // so purging the stored copy alone still leaves e.g. a stale listAppId showing
     // yesterday's partner tenant inside the wizard. Drop everything except the
@@ -65,11 +65,11 @@ const SetupGatePage = () => {
               label: 'Enter CIPP',
               color: 'success',
               onClick: () => {
-                clearPersistedQueries()
+                clearPersistedQueries().catch(() => {})
                 // Refetching authmecipp makes PrivateRoute re-evaluate the gate; if a
                 // worker still reports setup incomplete this screen simply stays up,
                 // results intact, and the button doubles as the retry.
-                queryClient.invalidateQueries()
+                queryClient.invalidateQueries().catch(() => {})
                 // The gate can be reached on the wizard's own route; land on the dashboard,
                 // not back on the setup wizard.
                 if (router.pathname !== '/') router.replace('/')

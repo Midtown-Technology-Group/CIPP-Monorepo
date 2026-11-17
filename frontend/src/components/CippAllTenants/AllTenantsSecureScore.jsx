@@ -512,7 +512,9 @@ export const AllTenantsSecureScoreTable = () => {
 
 // Presets built from the values actually present, so tiers/states Microsoft adds later still show up.
 const valueFilters = (rows, column, label) =>
-  [...new Set(rows.map((row) => row[column]).filter(Boolean))].sort().map((value) => ({
+  [...new Set(rows.map((row) => row[column]).filter(Boolean))]
+    .sort((a, b) => String(a).localeCompare(String(b)))
+    .map((value) => ({
     filterName: `${label}: ${value}`,
     value: [{ id: column, value }],
     type: 'column',

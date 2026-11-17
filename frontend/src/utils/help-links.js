@@ -61,6 +61,8 @@ export const clearCippCache = (queryClient) => {
 
   if (typeof window !== "undefined") {
     // Force refresh the page to bypass browser cache and reload JavaScript
-    clearPersistedQueries().then(() => window.location.reload(true));
+    clearPersistedQueries()
+      .catch(() => {})
+      .then(() => window.location.reload(true));
   }
 };

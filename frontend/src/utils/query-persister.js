@@ -181,7 +181,9 @@ const readClient = async () => {
   }
   const orphans = keys.filter((key) => key !== CLIENT_KEY && !stored.has(key))
   if (orphans.length)
-    run('readwrite', (store) => orphans.map((key) => store.delete(key)))
+    run('readwrite', (store) => orphans.map((key) => store.delete(key))).catch(
+      () => {}
+    )
   return (
     client && { ...client, clientState: { ...client.clientState, queries } }
   )
