@@ -32,11 +32,17 @@ const generateLargeDataset = (count = 10000) => {
     '4b585984-651b-448a-9e53-3b10f069cf7f',
   ]
 
-  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)]
+  // Deterministic sample data: stories and snapshots must not vary per run.
+  let seed = 0x2f6e2b1
+  const random = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0
+    return seed / 0x100000000
+  }
+  const pick = (arr) => arr[Math.floor(random() * arr.length)]
   const randomDate = (startYear, endYear) => {
     const start = new Date(startYear, 0, 1).getTime()
     const end = new Date(endYear, 11, 31).getTime()
-    return new Date(start + Math.random() * (end - start)).toISOString()
+    return new Date(start + random() * (end - start)).toISOString()
   }
 
   return Array.from({ length: count }, (_, i) => {
@@ -52,15 +58,15 @@ const generateLargeDataset = (count = 10000) => {
       mail: upn,
       createdDateTime: randomDate(2020, 2025),
       lastSignInDateTime: randomDate(2024, 2026),
-      accountEnabled: Math.random() > 0.2,
+      accountEnabled: random() > 0.2,
       proxyAddresses: [
         `SMTP:${upn}`,
         `smtp:${first.toLowerCase()}${i}@${domain}`,
-        ...(Math.random() > 0.5 ? [`smtp:alias${i}@${domain}`] : []),
+        ...(random() > 0.5 ? [`smtp:alias${i}@${domain}`] : []),
       ],
       assignedLicenses: [
         { skuId: pick(licenseGuids) },
-        ...(Math.random() > 0.5 ? [{ skuId: pick(licenseGuids) }] : []),
+        ...(random() > 0.5 ? [{ skuId: pick(licenseGuids) }] : []),
       ],
       Severity: pick(severities),
       Status: pick(statuses),
@@ -69,11 +75,11 @@ const generateLargeDataset = (count = 10000) => {
       info: {
         displayName: `${first} ${last} (Info)`,
       },
-      businessPhones: Math.random() > 0.3
+      businessPhones: random() > 0.3
         ? [
-            `+1-555-${String(Math.floor(Math.random() * 9000) + 1000)}`,
-            ...(Math.random() > 0.5
-              ? [`+1-555-${String(Math.floor(Math.random() * 9000) + 1000)}`]
+            `+1-555-${String(Math.floor(random() * 9000) + 1000)}`,
+            ...(random() > 0.5
+              ? [`+1-555-${String(Math.floor(random() * 9000) + 1000)}`]
               : []),
           ]
         : [],
