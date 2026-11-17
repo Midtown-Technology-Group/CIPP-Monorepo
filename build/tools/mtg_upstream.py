@@ -102,6 +102,49 @@ def ensure_validation(repository, branch, head):
         api(workflow + "/dispatches", {"ref": branch})
 
 
+# Unattended merges must not grant permissions, flip defaults, or change CI.
+AUTO_MERGE_HOLD_PATHS = {
+    "backend/Config/SAMManifest.json": "requested permissions changed",
+    "backend/Config/FeatureFlags.json": "feature-flag defaults changed",
+}
+AUTO_MERGE_HOLD_PREFIXES = ((".github/workflows/", "workflow definitions changed"),)
+
+
+def auto_merge_hold():
+    """Return why the staged delta needs a human, or None when it is safe."""
+    paths = git("diff", "--cached", "--name-only").decode().splitlines()
+    for path in paths:
+        if path in AUTO_MERGE_HOLD_PATHS:
+            return AUTO_MERGE_HOLD_PATHS[path]
+        for prefix, reason in AUTO_MERGE_HOLD_PREFIXES:
+            if path.startswith(prefix):
+                return reason
+    previous = major_version("HEAD")
+    source = major_version("")
+    if previous != source:
+        return "upstream major version changed"
+    return None
+
+
+def major_version(ref):
+    """Read a release major from a tree (HEAD) or the index (empty ref)."""
+    spec = f"{ref}:backend/version_latest.txt" if ref else ":backend/version_latest.txt"
+    try:
+        return git("show", spec).decode().strip().split(".")[0]
+    except RuntimeError:
+        return None
+
+
+def enable_auto_merge(repository, pull_request):
+    """Let GitHub squash-merge this PR once the required checks pass."""
+    response = api("graphql", {
+        "query": "mutation($input: EnablePullRequestAutoMergeInput!) { enablePullRequestAutoMerge(input: $input) { clientMutationId } }",
+        "variables": {"input": {"pullRequestId": pull_request["node_id"], "mergeMethod": "SQUASH"}},
+    })
+    if response.get("errors"):
+        raise RuntimeError("Auto-merge could not be enabled; inspect the PR before retrying.")
+
+
 def verify_commit(repository, head, update):
     """Reject a commit unless its signature, tree, and sole parent match preparation."""
     commit = api(f"repos/{repository}/git/commits/{head}")
@@ -139,6 +182,7 @@ def publish(repository, update):
     matches = api(f"repos/{repository}/git/matching-refs/heads/" + branch)
     if any(row["ref"] == "refs/heads/" + branch for row in matches):
         raise RuntimeError("Update branch already exists without an open PR; inspect before retrying.")
+    hold = auto_merge_hold()
     payload = commit_payload(repository, update)
     api(f"repos/{repository}/git/refs", {"ref": "refs/heads/" + branch, "sha": current})
     response = api("graphql", payload)
@@ -146,19 +190,27 @@ def publish(repository, update):
         raise RuntimeError("Signed commit creation failed; inspect branch readback before retrying.")
     head = response["data"]["createCommitOnBranch"]["commit"]["oid"]
     verify_commit(repository, head, update)
+    verdict = (
+        f"Auto-merge held for manual review: {hold}."
+        if hold
+        else "Auto-merge is enabled; it merges when the required checks pass."
+    )
     body = (
         f"Prepare upstream `{update['previous_sha']}` to `{update['source_sha']}` over production `{current}`.\n\n"
         "Only the upstream delta is applied, preserving the Midtown patch stack without importing unsigned history. "
         "Review release notes, permission/default changes, migrations, and all required checks before merging. "
         "A merge can publish and automatically deploy an attested candidate.\n\n"
+        f"{verdict}\n\n"
         f"Upstream changes: https://github.com/CyberDrain/CIPP/compare/{update['previous_sha']}...{update['source_sha']}"
     )
     pr = api(f"repos/{repository}/pulls", {
         "title": "chore(upstream): update CIPP to " + update["source_sha"][:12],
         "head": branch, "base": PRODUCTION, "body": body, "draft": False,
     })
+    if hold is None:
+        enable_auto_merge(repository, pr)
     ensure_validation(repository, branch, head)
-    return {**update, "pull_request": pr["html_url"], "head_sha": head}
+    return {**update, "pull_request": pr["html_url"], "head_sha": head, "auto_merge_hold": hold}
 
 
 def main():

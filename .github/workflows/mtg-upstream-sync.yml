@@ -3,6 +3,8 @@ name: "MTG: Synchronize Upstream"
 on:
   schedule:
     - cron: "17 */6 * * *"
+    # Publisher-only tick: dispatches builds for merged commits that have none.
+    - cron: "*/30 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -18,7 +20,7 @@ concurrency:
 jobs:
   sync:
     name: Mirror upstream and prepare reviewed production updates
-    if: github.ref == 'refs/heads/mtg-production'
+    if: github.ref == 'refs/heads/mtg-production' && github.event.schedule != '*/30 * * * *'
     runs-on: ubuntu-latest
     steps:
       - name: Require an unlocked mirror
@@ -64,4 +66,28 @@ jobs:
             gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body-file "$body_file"
           else
             gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body-file "$body_file"
+          fi
+  publish:
+    name: Publish a merged production commit with no candidate
+    needs: sync
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch the missing validation and candidate build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Auto-merge runs as the Actions app, whose pushes do not trigger the
+          # push-based validation or publish workflows, so dispatch them for the
+          # merged commit.
+          head=$(gh api "repos/${GITHUB_REPOSITORY}/branches/mtg-production" --jq '.commit.sha')
+          checks=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${head}/check-runs?per_page=100" --jq '[.check_runs[] | select(.name == "Backend standards" or .name == "Frontend standards" or .name == "Container build")] | length')
+          if [ "$checks" = "0" ]; then
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/workflows/mtg-validate.yml/dispatches" -f ref=mtg-production
+          fi
+          existing=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/mtg-release-container.yml/runs?branch=mtg-production&head_sha=${head}&per_page=1" --jq '.workflow_runs | length')
+          if [ "$existing" = "0" ]; then
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/workflows/mtg-release-container.yml/dispatches" \
+              -f ref=mtg-production -f "inputs[source_sha]=${head}"
           fi
