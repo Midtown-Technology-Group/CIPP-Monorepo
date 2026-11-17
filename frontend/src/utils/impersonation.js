@@ -39,9 +39,8 @@ const clearCachesAndReload = (queryClient) => {
   } catch {
     /* reload still gives a clean slate */
   }
-  clearPersistedQueries()
-    .catch(() => {})
-    .then(() => window.location.reload())
+  const reload = () => window.location.reload()
+  clearPersistedQueries().then(reload, reload)
 }
 
 export const enterImpersonation = (role, queryClient) => {

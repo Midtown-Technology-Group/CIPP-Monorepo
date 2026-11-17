@@ -5,7 +5,6 @@ import { clearPersistedQueries } from './query-persister'
 // go first. Shared by both 500 fallbacks.
 export const clearQueryCacheAndReload = () => {
   if (typeof window === 'undefined') return
-  clearPersistedQueries()
-    .catch(() => {})
-    .then(() => window.location.reload())
+  const reload = () => window.location.reload()
+  clearPersistedQueries().then(reload, reload)
 }
