@@ -127,12 +127,45 @@ class UpstreamTests(unittest.TestCase):
         responses = [[], {"commit": {"sha": self.production}}, [], {},
                      {"data": {"createCommitOnBranch": {"commit": {"oid": head}}}},
                      {"verification": {"verified": True}, "tree": {"sha": update["tree_sha"]}, "parents": [{"sha": self.production}]},
-                     {"html_url": "https://github.com/owner/repo/pull/1"}, {"workflow_runs": []}, {}]
+                     {"html_url": "https://github.com/owner/repo/pull/1", "node_id": "PR_node"},
+                     {"data": {"enablePullRequestAutoMerge": {}}}, {"workflow_runs": []}, {}]
         with patch.object(UPSTREAM, "api", side_effect=responses) as provider:
             result = UPSTREAM.publish("owner/repo", update)
         self.assertEqual(result["head_sha"], head)
+        self.assertIsNone(result["auto_merge_hold"])
         self.assertFalse(provider.call_args_list[6].args[1]["draft"])
+        self.assertIn("enablePullRequestAutoMerge", provider.call_args_list[7].args[1]["query"])
         self.assertTrue(provider.call_args_list[-1].args[0].endswith("/dispatches"))
+
+    def test_auto_merge_holds_risky_paths_and_major_changes(self):
+        """Permissions, flag defaults, workflow edits, and major bumps need a human."""
+        for path, reason in [
+            ("backend/Config/SAMManifest.json", "requested permissions changed"),
+            ("backend/Config/FeatureFlags.json", "feature-flag defaults changed"),
+            (".github/workflows/release-container.yml", "workflow definitions changed"),
+        ]:
+            with self.subTest(path=path):
+                self.git("reset", "-q", "--hard", self.production)
+                target = Path(path)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("hold\n")
+                self.git("add", path)
+                self.assertEqual(UPSTREAM.auto_merge_hold(), reason)
+        self.git("reset", "-q", "--hard", self.production)
+        version = Path("backend/version_latest.txt")
+        version.parent.mkdir(parents=True, exist_ok=True)
+        version.write_text("11.4.0\n")
+        self.commit()
+        version.write_text("12.0.0\n")
+        self.git("add", "backend/version_latest.txt")
+        self.assertEqual(UPSTREAM.auto_merge_hold(), "upstream major version changed")
+
+    def test_auto_merge_is_safe_for_ordinary_deltas(self):
+        """A normal source delta without risky paths can merge unattended."""
+        self.git("reset", "-q", "--hard", self.production)
+        Path("safe.txt").write_text("ok\n")
+        self.git("add", "safe.txt")
+        self.assertIsNone(UPSTREAM.auto_merge_hold())
 
     def test_existing_pr_and_run_are_reused_without_writes(self):
         """Reuse requires the exact verified commit and preserves an existing run."""
