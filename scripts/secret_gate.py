@@ -20,6 +20,8 @@ from pathlib import Path
 
 MINIMUM_PYTHON = (3, 11)
 GITDIR_PREFIX = "gitdir:"
+# Generated upstream data, not hand-written source; see SCANNER_EXCLUDES use.
+SCANNER_EXCLUDES = ("frontend/public/intune-definitions/*",)
 
 
 class GateError(Exception):
@@ -436,21 +438,25 @@ def scan(revisions, executable):
             "version: 2\nexit_zero: false\nsecret:\n  show_secrets: false\n",
             encoding="utf-8",
         )
+        argv = [
+            executable,
+            "--no-check-for-updates",
+            "--config-path",
+            str(config),
+            "secret",
+            "scan",
+            "commit-range",
+            "--all-secrets",
+        ]
+        # Generated upstream Intune data: single-line buckets where Apple proxy
+        # preference keys trip generic detectors. Server checks still cover them.
+        for pattern in SCANNER_EXCLUDES:
+            argv += ["--exclude", pattern]
         for revision, count in revisions:
             print(f"SCANNING: {count} commit(s), {revision}", flush=True)
             # Even censored findings can include sensitive source context.
             result = subprocess.run(
-                [
-                    executable,
-                    "--no-check-for-updates",
-                    "--config-path",
-                    str(config),
-                    "secret",
-                    "scan",
-                    "commit-range",
-                    "--all-secrets",
-                    revision,
-                ],
+                argv + [revision],
                 check=False,
                 env=env,
                 cwd=directory,
