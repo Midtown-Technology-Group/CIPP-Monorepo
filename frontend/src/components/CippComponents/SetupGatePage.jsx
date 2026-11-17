@@ -4,20 +4,15 @@ import { useRouter } from 'next/router'
 import { Alert, Box, Container, Stack, Typography } from '@mui/material'
 import { useQueryClient } from '@tanstack/react-query'
 import { ApiGetCall } from '../../api/ApiCall'
+import { clearPersistedQueries } from '../../utils/query-persister'
 
 const OnboardingWizardPage = dynamic(() => import('../CippWizard/OnboardingWizardPage.jsx'), {
   ssr: false,
 })
 
 // The persister in _app.js keeps listAppId/TenantSelector/AllTenantsDashboard-Tenants
-// for 24h in localStorage; everything cached before setup completed is junk, so the
+// for 24h; everything cached before setup completed is junk, so the
 // gate drops the persisted store both when it mounts and when the user enters CIPP.
-const purgePersistedCache = () => {
-  if (typeof window === 'undefined') return
-  Object.keys(localStorage).forEach((key) => {
-    if (key.startsWith('REACT_QUERY_OFFLINE_CACHE')) localStorage.removeItem(key)
-  })
-}
 
 // Full-screen blocking host for the setup wizard, rendered by PrivateRoute in place
 // of the entire app while /api/me reports initialSetupComplete: false. Not hosted in
@@ -26,9 +21,9 @@ const SetupGatePage = () => {
   const queryClient = useQueryClient()
   const router = useRouter()
   useEffect(() => {
-    purgePersistedCache()
+    clearPersistedQueries().catch(() => {})
     // The persister already rehydrated pre-setup queries into memory at app start,
-    // so purging localStorage alone still leaves e.g. a stale listAppId showing
+    // so purging the stored copy alone still leaves e.g. a stale listAppId showing
     // yesterday's partner tenant inside the wizard. Drop everything except the
     // auth queries the gate itself depends on.
     queryClient.removeQueries({
@@ -70,11 +65,11 @@ const SetupGatePage = () => {
               label: 'Enter CIPP',
               color: 'success',
               onClick: () => {
-                purgePersistedCache()
+                clearPersistedQueries().catch(() => {})
                 // Refetching authmecipp makes PrivateRoute re-evaluate the gate; if a
                 // worker still reports setup incomplete this screen simply stays up,
                 // results intact, and the button doubles as the retry.
-                queryClient.invalidateQueries()
+                queryClient.invalidateQueries().catch(() => {})
                 // The gate can be reached on the wizard's own route; land on the dashboard,
                 // not back on the setup wizard.
                 if (router.pathname !== '/') router.replace('/')

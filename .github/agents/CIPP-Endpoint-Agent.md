@@ -113,7 +113,8 @@ A helper must let its caller tell an input problem apart from an upstream failur
 - Throw `[System.ArgumentException]::new('<message>')` for invalid input or a refused request.
 - Throw `[System.Management.Automation.ItemNotFoundException]::new('<message>')` for a named resource that does not exist.
 - Let upstream failures throw as they are.
-- In the endpoint catch, `Get-CippErrorStatusCode -ErrorRecord $_` maps these to 400 / 404 / 500. It also looks inside
+- In the endpoint catch, `Get-CippErrorStatusCode -ErrorRecord $_` maps these to 400 / 404 / 500, and an Azure Storage
+  5xx or unreachable error (`Azure.RequestFailedException`) to 503 so the frontend retries it. It also looks inside
   wrapped exceptions, because a script block run through a .NET method surfaces as
   `MethodInvocationException -> RuntimeException -> ArgumentException`.
 - A layer between the helper and the endpoint must not catch a typed exception and rethrow it as a string
@@ -123,6 +124,84 @@ A helper must let its caller tell an input problem apart from an upstream failur
 - Before changing what a helper returns or throws, read **every** caller. Scheduled and background callers
   (`New-CIPPUserTask`, offboarding tasks, BEC containment, extension syncs) must keep collecting per-step results and
   must not start aborting halfway.
+
+## Storing a tenant
+
+`tenantFilter` arrives as the tenant's current default domain, which can change. When an endpoint saves a tenant
+reference (a table row or key, saved settings), store the `customerId`:
+
+```powershell
+$Tenant = @(Get-Tenants -TenantFilter $TenantFilter -IncludeErrors)[0]
+$TenantId = $Tenant.customerId ?? $TenantFilter
+```
+
+Reads match any of the tenant's identifiers, because older rows may hold a domain. Rules and the lookup helper:
+"Storing tenant references" in `.github/copilot-instructions.md`.
+
+---
+
+## Cached list reads (AllTenants)
+
+A List endpoint never queries every tenant inside the request, and never reads a cache that only grows. AllTenants
+reads come from one of the two existing caches.
+
+**Reporting database**, when a CIPPDB cache type exists (`Set-CIPPDBCache<X>` / `Add-CIPPDbItem`):
+
+```powershell
+if ($TenantFilter -eq 'AllTenants' -or $UseReportDB) {
+    if ($Request.Query.manualPagination -eq $true) {
+        $Body = Get-CIPPReportPage -TenantFilter $TenantFilter -Type '<Type>' -PageSize ($Request.Query.PageSize -as [int]) -ContinuationToken $Request.Query.nextLink -Report { param($Tenant) Get-CIPP<X>Report -TenantFilter $Tenant -ErrorAction Stop }
+    } else {
+        $Body = @(Get-CIPP<X>Report -TenantFilter $TenantFilter -ErrorAction Stop)
+    }
+}
+```
+
+- Paging is opt-in with `manualPagination`, which returns `{ Results, Metadata }` with `Metadata.nextLink`. Pages
+  hold whole tenants. Without it, the whole report is returned as an array. Every report-backed endpoint does this,
+  so keep it consistent.
+- If a live single-tenant read would cost one call per item (`ListMailboxRules`: one Exchange call per mailbox),
+  every read uses the report and the endpoint does not read `UseReportDB` at all.
+- The report helper throws `ItemNotFoundException` when a tenant has no cached rows, so the caller gets 404
+  "Sync the report data first".
+
+**Graph request cache**, for a Graph endpoint without a CIPPDB type:
+`Get-GraphRequestList -TenantFilter 'AllTenants' -Endpoint '<path>' [-Parameters @{ '$filter' = ... }] [-AsApp $true] -CacheStatus $CacheStatus`.
+It keeps one row per tenant, replaced on each refresh, and reads only rows from the last hour. When the result has
+`Queued`, pass `QueueMessage` and `QueueId` on in `Metadata`. Otherwise pass on `CachedTenants`, `ExpectedTenants` and
+`QueueId` from `$CacheStatus` (see `Invoke-ExecAlertsList`). The cache key includes the parameters, so a parameter
+that changes on every call, such as a timestamp, makes every call a miss and queues a refresh each time.
+
+**Never** write a cache table where each refresh adds rows under new random RowKeys, and never read a whole partition
+and then filter it by `Timestamp` in PowerShell. Nothing removes those rows, so every request reads more than the one
+before until the heap runs out. `cachealertsandincidents` and `cachembxrules` did this and were removed.
+
+**Frontend:** a page that reads a report-backed endpoint uses `useCippReportDB({ ..., serverPagination: true })` and
+passes `reportDB.resolvedApiUrl`, `resolvedApiData`, `apiDataKey` and `resolvedQueryKey` to `CippTablePage`. That sends
+`manualPagination=true` and reads `Results`. When an endpoint moves to this pattern, grep `frontend/src` for
+`/api/<Name>` and check every consumer pages and reads the paged shape.
+
+---
+
+## Tenant groups
+
+A request names a tenant (`tenantFilter`) or a tenant group (`tenantGroup`), in the query or the body, never both and
+never a group inside `tenantFilter` (`New-CippCoreRequest` returns 400 for either).
+The whole feature sits behind the `TenantGroupSelector` feature flag (off by default): while it is off, the
+selector's `ListTenantGroups?TenantSelector=true` lists no groups and the dispatcher refuses any `tenantGroup` with 400.
+
+- **Backend:** an endpoint accepts a group by declaring `.FUNCTIONALITY Entrypoint,TenantGroup`, and only when its
+  All Tenants path honours the request scope (`Get-Tenants`, `Get-CIPPDbItem -TenantFilter allTenants`,
+  `Select-CippAllowedTenantData`). The dispatcher runs it with `tenantFilter=AllTenants` and `tenantGroup` in the query,
+  narrowed to the group's tenants. `Test-CIPPAccess` refuses a group on an endpoint without the flag, and on any write.
+- **Frontend:** a page accepts a group with `tenantGroupSupport={true}` on its layout. The selection
+  (`settings.currentTenant`) is `'group:<id>'` for a group, so every request built from it uses
+  `tenantScope(selection)` from `utils/tenant-selection`, which returns `{ tenantFilter }` or `{ tenantGroup }`.
+  This includes `row.Tenant ?? selection` fallbacks. Use `isMultiTenant(selection)` for "show the multi-tenant view",
+  never `=== 'AllTenants'`.
+  A page that never uses the selected tenant (settings, templates) sets `usesTenant={false}` on its layout: with a
+  group selected it is not blocked and runs as it does with All Tenants. Any other page without `tenantGroupSupport`
+  shows a "pick a tenant or All Tenants" notice.
 
 ---
 

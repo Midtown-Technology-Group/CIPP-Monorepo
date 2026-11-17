@@ -32,11 +32,17 @@ const generateLargeDataset = (count = 10000) => {
     '4b585984-651b-448a-9e53-3b10f069cf7f',
   ]
 
-  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)]
+  // Deterministic sample data: stories and snapshots must not vary per run.
+  let seed = 0x2f6e2b1
+  const random = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0
+    return seed / 0x100000000
+  }
+  const pick = (arr) => arr[Math.floor(random() * arr.length)]
   const randomDate = (startYear, endYear) => {
     const start = new Date(startYear, 0, 1).getTime()
     const end = new Date(endYear, 11, 31).getTime()
-    return new Date(start + Math.random() * (end - start)).toISOString()
+    return new Date(start + random() * (end - start)).toISOString()
   }
 
   return Array.from({ length: count }, (_, i) => {
@@ -52,15 +58,15 @@ const generateLargeDataset = (count = 10000) => {
       mail: upn,
       createdDateTime: randomDate(2020, 2025),
       lastSignInDateTime: randomDate(2024, 2026),
-      accountEnabled: Math.random() > 0.2,
+      accountEnabled: random() > 0.2,
       proxyAddresses: [
         `SMTP:${upn}`,
         `smtp:${first.toLowerCase()}${i}@${domain}`,
-        ...(Math.random() > 0.5 ? [`smtp:alias${i}@${domain}`] : []),
+        ...(random() > 0.5 ? [`smtp:alias${i}@${domain}`] : []),
       ],
       assignedLicenses: [
         { skuId: pick(licenseGuids) },
-        ...(Math.random() > 0.5 ? [{ skuId: pick(licenseGuids) }] : []),
+        ...(random() > 0.5 ? [{ skuId: pick(licenseGuids) }] : []),
       ],
       Severity: pick(severities),
       Status: pick(statuses),
@@ -69,11 +75,11 @@ const generateLargeDataset = (count = 10000) => {
       info: {
         displayName: `${first} ${last} (Info)`,
       },
-      businessPhones: Math.random() > 0.3
+      businessPhones: random() > 0.3
         ? [
-            `+1-555-${String(Math.floor(Math.random() * 9000) + 1000)}`,
-            ...(Math.random() > 0.5
-              ? [`+1-555-${String(Math.floor(Math.random() * 9000) + 1000)}`]
+            `+1-555-${String(Math.floor(random() * 9000) + 1000)}`,
+            ...(random() > 0.5
+              ? [`+1-555-${String(Math.floor(random() * 9000) + 1000)}`]
               : []),
           ]
         : [],
@@ -525,6 +531,117 @@ export const SearchKeepsFocusWhileLoading = {
       await userEvent.keyboard('n')
       expect(canvas.getByPlaceholderText('Search...')).toHaveValue('on')
     })
+  },
+}
+
+// Page 2 is too small to pass the row-growth throttle on its own, so it only shows once paging stops.
+let stopPagingPage3Requests = 0
+export const StopPagingKeepsLoadedRows = {
+  beforeEach({ msw }) {
+    stopPagingPage3Requests = 0
+    msw.use(
+      http.get('/api/TestStopPaging', async ({ request }) => {
+        const nextLink = new URL(request.url).searchParams.get('nextLink')
+        if (nextLink === 'page3') {
+          stopPagingPage3Requests++
+          await delay(30000)
+          return HttpResponse.json({ Results: [{ displayName: 'Never Shown' }], Metadata: {} })
+        }
+        if (nextLink === 'page2') {
+          return HttpResponse.json({
+            Results: [{ displayName: 'Erin Page2' }],
+            Metadata: { nextLink: 'page3' },
+          })
+        }
+        return HttpResponse.json({
+          Results: ['Alice', 'Bob', 'Carol', 'Dave'].map((name) => ({ displayName: `${name} Page1` })),
+          Metadata: { nextLink: 'page2' },
+        })
+      })
+    )
+  },
+  args: {
+    title: 'Stop Paging',
+    api: { url: '/api/TestStopPaging', dataKey: 'Results' },
+    queryKey: 'storybook-TestStopPaging',
+  },
+  play: async ({ canvasElement, step }) => {
+    const canvas = within(canvasElement)
+
+    await step('stop while the last page is loading', async () => {
+      await waitFor(() => expect(stopPagingPage3Requests).toBe(1), { timeout: 5000 })
+      const stop = await canvas.findByRole('button', { name: 'Stop loading' }, { timeout: 5000 })
+      await userEvent.click(stop)
+    })
+
+    await step('the rows already retrieved show and no further page is asked for', async () => {
+      await waitFor(() => expect(canvasElement.textContent).toContain('Erin Page2'), {
+        timeout: 5000,
+      })
+      expect(canvasElement.textContent).toContain('Alice Page1')
+      await canvas.findByRole('button', { name: 'Refresh data' })
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      expect(stopPagingPage3Requests).toBe(1)
+      expect(canvasElement.textContent).not.toContain('Never Shown')
+    })
+  },
+}
+
+// The coverage chip's action rides on exactly one reload; later reloads must not start another run.
+let fillMissingRequests = []
+export const LoadMissingTenants = {
+  beforeEach({ msw }) {
+    fillMissingRequests = []
+    msw.use(
+      http.get('/api/TestPartialCache', ({ request }) => {
+        const fill = new URL(request.url).searchParams.get('FillMissing')
+        fillMissingRequests.push(fill)
+        return HttpResponse.json({
+          Results: [{ displayName: 'Cached Row' }],
+          Metadata: fill
+            ? { CachedTenants: 2, ExpectedTenants: 3, QueueId: 'q-fill' }
+            : { CachedTenants: 2, ExpectedTenants: 3 },
+        })
+      }),
+      http.get('*/api/ListCippQueue', () =>
+        HttpResponse.json([{ QueueId: 'q-fill', Name: 'Users (1 missing tenants)', Status: 'Running' }])
+      )
+    )
+  },
+  args: {
+    title: 'Partial Cache',
+    api: { url: '/api/TestPartialCache', dataKey: 'Results' },
+    queryKey: 'storybook-TestPartialCache',
+  },
+  play: async ({ canvasElement, step }) => {
+    const canvas = within(canvasElement)
+    const body = within(document.body)
+
+    await step('load the missing tenants from the Data source controls', async () => {
+      await canvas.findByText('2 of 3 tenants', {}, { timeout: 5000 })
+      expect(canvas.getAllByText('2 of 3 tenants')).toHaveLength(1)
+      await userEvent.click(canvas.getByRole('button', { name: 'Sync' }))
+      await userEvent.click(await body.findByRole('menuitem', { name: 'Load missing tenants' }))
+    })
+
+    await step('one reload carries the flag and the run it started is tracked', async () => {
+      await waitFor(() => expect(fillMissingRequests).toContain('true'), { timeout: 5000 })
+      await userEvent.click(await canvas.findByRole('button', { name: 'Refresh data' }, { timeout: 5000 }))
+      await waitFor(() => expect(fillMissingRequests.at(-1)).toBeNull(), { timeout: 5000 })
+      expect(fillMissingRequests.filter((fill) => fill === 'true')).toHaveLength(1)
+    })
+  },
+}
+
+// Without a card header the coverage stays in the toolbar rather than disappearing.
+export const TenantCoverageWithoutHeader = {
+  beforeEach: LoadMissingTenants.beforeEach,
+  args: { ...LoadMissingTenants.args, noCard: true, queryKey: 'storybook-TestPartialCacheNoCard' },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText('2 of 3 tenants', {}, { timeout: 5000 })
+    expect(canvas.getAllByText('2 of 3 tenants')).toHaveLength(1)
+    expect(canvas.getByRole('button', { name: 'Sync' })).toBeInTheDocument()
   },
 }
 

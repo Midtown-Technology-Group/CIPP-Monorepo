@@ -37,6 +37,7 @@ assert not any(
     for entry in os.get_exec_path()
 )
 assert "--all-secrets" in args
+assert args[args.index("--exclude") + 1] == "frontend/public/intune-definitions/*"
 assert os.environ["GITGUARDIAN_EXIT_ZERO"] == "false"
 assert os.environ["GITGUARDIAN_DONT_LOAD_ENV"] == "1"
 assert "GITGUARDIAN_LOG_FILE" not in os.environ

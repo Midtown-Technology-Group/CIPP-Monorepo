@@ -70,7 +70,10 @@ Only exit **0 / CLEAN** means a successful scanner run. Other outcomes block:
 
 No skip or fail-open switch is provided. Strict temporary scanner configuration
 ignores local/global exclusions and exit-zero settings; dotenv loading and scanner
-log files are disabled, and all secrets are requested. Credentials stay in their
+log files are disabled, and all secrets are requested. Generated Intune definition
+buckets under `frontend/public/intune-definitions/` are excluded from content
+scanning because generic detectors misread their Apple proxy preference keys;
+GitGuardian App and CI checks still cover them. Credentials stay in their
 native storage/process environment. Raw findings and diagnostics are suppressed,
 including source context; investigate findings locally in an approved private
 terminal. Do not paste secret values into chat, tickets or logs.
